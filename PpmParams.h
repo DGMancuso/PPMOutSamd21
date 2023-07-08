@@ -1,25 +1,6 @@
 #ifndef PPMPARAMS_H
 #define PPMPARAMS_H
-#include <Arduino.h>
-
-// defines pwm endpoints
-// numbers are x 10 nanoseconds (e-8 s) - max 2.55 microseconds
-struct pwmChParamsStruct {
-
-  uint8_t lowMicros = 100;
-  uint8_t midMicros = 150;
-  uint8_t highMicros= 200;
-};
-// class Classy
-// {
-//     private:
-//         int arraysize;
-//         std::unique_ptr<int[]> myarray;
-
-//     public:
-//         Classy(int parraysize);
-//         void printarray();
-// };
+#include <PWMParametersClass.h>
 
 class ppmParamsClass{
 
@@ -37,7 +18,7 @@ class ppmParamsClass{
 
   private:
 
-    pwmChParamsStruct* pwmChParams;
+    PWMParametersClass* pwmChParams;
 
   public:
 
@@ -47,7 +28,7 @@ class ppmParamsClass{
                   uint16_t pulseLowLength = 400);
     ~ppmParamsClass();
 
-    bool setPwmChParam(uint8_t channel, pwmChParamsStruct pwmChParams);
+    bool setPwmChParam(uint8_t channel, PWMParametersClass pwmChParams);
 };
 
 #endif //PPMPARAMS_H
