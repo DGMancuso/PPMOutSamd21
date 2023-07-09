@@ -3,7 +3,6 @@
 #include <PpmParams.h>
 
 typedef void (*timerCallback)();
-static timerCallback TC3Callback;
 
 class PPMOut {
     
