@@ -13,10 +13,10 @@ ppmParamsClass::ppmParamsClass(uint8_t castPin,
 }
 
 // overwrites defaults to end point numbers for PWM in
-bool ppmParamsClass::setPwmChParam(uint8_t channel, PWMParametersClass pwmChParamsOverwrite)
+bool ppmParamsClass::setPwmChParam(PWMParametersClass pwmChParamsOverwrite)
 {
-  if(channel >= channelCount) return false;
-  pwmChParams[channel] = pwmChParamsOverwrite;
+  if(pwmChParamsOverwrite.pin >= channelCount) return false;
+  pwmChParams[pwmChParamsOverwrite.pin] = pwmChParamsOverwrite;
   return true;
 }
 

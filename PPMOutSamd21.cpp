@@ -1,8 +1,7 @@
 #include "PPMOutSamd21.h"
 
-PPMOut::PPMOut(const ppmParamsClass ppmParams, void(*triggerFunction)(), uint8_t clockType, bool testMode):
+PPMOut::PPMOut(const ppmParamsClass ppmParams, void(*triggerFunction)(), bool testMode):
     ppmParams(ppmParams),
-    clockType(clockType), 
     looping(testMode),
     ppmVal({0,0,0,0,0,0,0,0}),
     triggerFunc(triggerFunction)
@@ -13,16 +12,12 @@ PPMOut::PPMOut(const ppmParamsClass ppmParams, void(*triggerFunction)(), uint8_t
 void PPMOut::Init()
 {
     pinMode(ppmParams.castPin, OUTPUT);
-    for(uint8_t i : ppmVal) ppmVal[i] = 1500; // initializes each ppm channel to midpoint
+    for(uint16_t i = 0; i < 8 /*size(ppmVal)*/; i++) {ppmVal[i] = 1500;} // initializes each ppm channel to midpoint
     // chooses correct clock setup - only one implemented
-    switch(clockType)
-    {
-      case 0: clockPeriodRatio = 1000 / clockSetupTC4(); break;
-      default: clockPeriodRatio = 1000 / clockSetupTC4(); break;
-    }
+    clockPeriodRatio = 1000.0 / clockSetupTC4();
 }
 
-uint16_t PPMOut::clockSetupTC4(uint8_t divisor48MHz)
+float PPMOut::clockSetupTC4(uint8_t divisor48MHz)
 {
 /*In this example the timer overflows 1000 timer per second, (48MHz/3= 16MHz, 16MHz/64=256kHz, 256kHz/(255 + 1)=1kHz).
 
@@ -40,10 +35,12 @@ Also, in the interrupt handler I've checked both the interrupt flag and the inte
   if (TC4->COUNT8.INTFLAG.bit.MC0 && TC4->COUNT8.INTENSET.bit.MC0)
 If you don't do this and just use the interrupt flag only, the overflow (OVF), counter compare 0 (CC0), and counter compare 
 (CC1) routines can interfere with each other.*/
-
+  
+  float returnTracker = 0;
    // Set up the generic clock (GCLK4) used to clock timers
   REG_GCLK_GENDIV = GCLK_GENDIV_DIV(divisor48MHz) | // Divide the 48MHz clock source by divisor (default = 3) -> 48MHz/3=16MHz
                     GCLK_GENDIV_ID(4);            // Select Generic Clock (GCLK) 4
+  returnTracker = 48000000.0/divisor48MHz;
   while (GCLK->STATUS.bit.SYNCBUSY);              // Wait for synchronization
 
   REG_GCLK_GENCTRL = GCLK_GENCTRL_IDC |           // Set the duty cycle to 50/50 HIGH/LOW
@@ -87,55 +84,53 @@ If you don't do this and just use the interrupt flag only, the overflow (OVF), c
  
   REG_TC4_CTRLA |= TC_CTRLA_ENABLE |            // Enable TC4
                    TC_CTRLA_PRESCALER_DIV16;    // Set prescaler to 16 - default -> 16MHz/16 = 1MHz
-                                                // defaults: period   = 1000 nanosec <- 1/Hz
-                                                //           rollover = 65.5 millisec <- 65536 * period (16 bit ticks)              
+  returnTracker = returnTracker/16;             // defaults: period   = 1000 nanosec <- 1/Hz
+  returnTracker = 1000000000/returnTracker;      //           rollover = 65.5 millisec <- 65536 * period (16 bit ticks)              
   while (TC4->COUNT16.STATUS.bit.SYNCBUSY);     // Wait for synchronization
+  return returnTracker;
 }
 
 PPMOut::~PPMOut() {
 }
 
-// if no values given, uses object's stored values (this is preffered)
-void PPMOut::interruptServiceTC4() { 
-  interruptServiceTC4(ppmVal);
-}
-
-// external functions can feed thier own arrays for Xmit, but its probably not a good idea
-void PPMOut::interruptServiceTC4(uint16_t[]) {     
+// uses object's stored values to xmit one by one
+void PPMOut::interruptServiceTC4() {     
 
   // Check for overflow (OVF) interrupt
   if (TC4->COUNT8.INTFLAG.bit.OVF && TC4->COUNT8.INTENSET.bit.OVF)             
   {
     // Resets frame - should never get here
     resetFrame();
-    REG_TC4_INTFLAG = TC_INTFLAG_OVF;         // Clear the OVF interrupt flag
+    REG_TC4_INTFLAG |= TC_INTFLAG_OVF;         // Clear the OVF interrupt flag
   }
 
   // Check for match counter 0 (MC0) interrupt
   // When triggered, it changes the ppmVals by PPMOut::loopValues()
   if (TC4->COUNT8.INTFLAG.bit.MC0 && TC4->COUNT8.INTENSET.bit.MC0)             
   {
+    Serial.println("AM I TRIGGERING?");
     loopCount++;
-      if(loopCount >= 10) // every 10 triggers (0.5 sec)
+      if(loopCount >= 100) // every 100 triggers (5 sec)
       {
         loopCount = 0;
         loopValues();
       }
     REG_TC4_COUNT16_CC0 += (50000 * clockPeriodRatio); // next trigger 50ms later
-    REG_TC4_INTFLAG = TC_INTFLAG_MC0;         // Clear the MC0 interrupt flag
+    REG_TC4_INTFLAG |= TC_INTFLAG_MC0;         // Clear the MC0 interrupt flag
   }
 
   // Check for match counter 1 (MC1) interrupt
   if (TC4->COUNT8.INTFLAG.bit.MC1 && TC4->COUNT8.INTENSET.bit.MC1)           
   {
-    if (highState == true) // trigger means begin new pulse
+    //Serial.println(REG_TC4_COUNT16_CC1);
+    if (lowState == false) // trigger means begin new pulse
     {
-      digitalWrite(ppmParams.castPin,LOW); // pin low
-      highState = false;                   // track pin low
+      digitalWrite(ppmParams.castPin,LOW); // pin high
+      lowState = true;                   // track pin high
       REG_TC4_COUNT16_CC1 += (ppmParams.pulseLowLength * clockPeriodRatio); // sets next trigger to reverts signal after pulse length 
       ppm_sum += ppmParams.pulseLowLength; // overall time at next trigger - adds one pulseLowLength
     }
-    else // if highState = false
+    else // if lowState = true
     {
       if (ppm_ch >= ppmParams.channelCount - 1) // resets state after last channel
       {
@@ -143,25 +138,46 @@ void PPMOut::interruptServiceTC4(uint16_t[]) {
       }
       else // there are more channels to send
       {
-        digitalWrite(ppmParams.castPin,HIGH); // pin high
-        highState = true;                     // track pin high
+        digitalWrite(ppmParams.castPin,HIGH); // pin low
+        lowState = false;                     // track pin low
         REG_TC4_COUNT16_CC1=REG_TC4_COUNT16_CC1 += ((ppmVal[ppm_ch] - ppmParams.pulseLowLength) * clockPeriodRatio); // sets next trigger at channel value - note pulseLowLength subtracted back out
         ppm_sum += (ppmVal[ppm_ch] - ppmParams.pulseLowLength); // overall time at next trigger - signal compensating for pulse length
         ppm_ch++; // sets next channel
+
+ 
+           
+    // loopCount++;
+    //   if(loopCount >= 50) // every triggers 
+    //   {
+    //     loopCount = 0;
+    //     loopValues();
+    //    }
+
       }
     }
-    REG_TC4_INTFLAG = TC_INTFLAG_MC1;        // Clear the MC1 interrupt flag
+    REG_TC4_INTFLAG |= TC_INTFLAG_MC1;        // Clear the MC1 interrupt flag
   } //end MC1 Interrupt
 }
 
 bool PPMOut::resetFrame(){
     Serial.println(ppm_sum); // debugging, can remove
+    Serial.print("__________");
+    digitalWrite(ppmParams.castPin,HIGH); // pin low
+    lowState = false;                     // track pin low
     ppm_ch = 0; //next pulse will start frame
     if (ppm_sum > ppmParams.frameLength) ppm_sum = 0; // if value is somehow out of range, limits downtime
     uint16_t remain = ppmParams.frameLength - ppm_sum; // calculates remaining time left in current frame
     if (remain < 500) remain = 500; // if time is too short, extend frame to min 500 microsec
+    Serial.println(remain); // debugging, can remove
+    Serial.print("__________");
     REG_TC4_COUNT16_CC1 += (remain * clockPeriodRatio);
     ppm_sum = 0; // reset pulse timer
+    REG_TC4_INTFLAG |= TC_INTFLAG_MC1;        // Clear the MC1 interrupt flag
+    Serial.print(micros());
+    Serial.print("__________");
+    for(uint16_t i = 0; i < 8 /*size(ppmVal)*/; i++) {Serial.print(ppmVal[i]);Serial.print("_____");}
+    Serial.print(clockPeriodRatio);
+    Serial.println("Reset Frame Complete");
   return true;
 }
 
@@ -180,6 +196,8 @@ void PPMOut::loopValues() {
         ppmVal[3]=1000;
         ppmVal[4]=1000;
     }
+    Serial.println("Loop increment run.");
+
 }
 
 bool PPMOut::setChannelValue(byte channelRequest, uint16_t value){
@@ -191,7 +209,6 @@ bool PPMOut::setChannelValue(byte channelRequest, uint16_t value){
 
 uint16_t PPMOut::getChannelValue(byte channelRequest){
     if (channelRequest > ppmParams.channelCount) return UINT16_MAX; // can't set a channel that doesnt exist
-    if (channelRequest > (sizeof(ppmVal)/sizeof(int))) return UINT16_MAX; // paranoia
     return ppmVal[channelRequest]; // the obvious answer
     return UINT16_MAX; // shouldn't get here but in case function changes
 }

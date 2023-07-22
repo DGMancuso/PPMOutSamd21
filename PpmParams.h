@@ -25,10 +25,10 @@ class ppmParamsClass{
     ppmParamsClass(uint8_t castPin = 5, 
                   uint8_t channelCount = 8, 
                   uint16_t frameLength = 22000, 
-                  uint16_t pulseLowLength = 400);
+                  uint16_t pulseLowLength = 500);
     ~ppmParamsClass();
 
-    bool setPwmChParam(uint8_t channel, PWMParametersClass pwmChParams);
+    bool setPwmChParam(PWMParametersClass pwmChParams);
 };
 
 #endif //PPMPARAMS_H
