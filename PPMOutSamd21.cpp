@@ -160,24 +160,17 @@ void PPMOut::interruptServiceTC4() {
 }
 
 bool PPMOut::resetFrame(){
-    Serial.println(ppm_sum); // debugging, can remove
-    Serial.print("__________");
     digitalWrite(ppmParams.castPin,HIGH); // pin low
     lowState = false;                     // track pin low
     ppm_ch = 0; //next pulse will start frame
     if (ppm_sum > ppmParams.frameLength) ppm_sum = 0; // if value is somehow out of range, limits downtime
     uint16_t remain = ppmParams.frameLength - ppm_sum; // calculates remaining time left in current frame
     if (remain < 500) remain = 500; // if time is too short, extend frame to min 500 microsec
-    Serial.println(remain); // debugging, can remove
-    Serial.print("__________");
     REG_TC4_COUNT16_CC1 += (remain * clockPeriodRatio);
     ppm_sum = 0; // reset pulse timer
     REG_TC4_INTFLAG |= TC_INTFLAG_MC1;        // Clear the MC1 interrupt flag
-    Serial.print(micros());
-    Serial.print("__________");
-    for(uint16_t i = 0; i < 8 /*size(ppmVal)*/; i++) {Serial.print(ppmVal[i]);Serial.print("_____");}
-    Serial.print(clockPeriodRatio);
-    Serial.println("Reset Frame Complete");
+    for(uint16_t i = 0; i < 8 /*size(ppmVal)*/; i++) {Serial.print(ppmVal[i]);Serial.print("_____");} // debug chanel values being sent
+    Serial.println();
   return true;
 }
 
